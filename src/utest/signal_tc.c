@@ -16,6 +16,8 @@
  * case 7:rt_signal_kill, kill legal thread, return 0;
  * case 8:rt_signal_kill, kill illegal thread, return failed (unused);
  * case 9:rt_signal_kill, kill illegal signo, return -RT_EINVAL;
+ * case 10:rt_signal_kill, a thread blocked in rt_thread_mdelay() receives a signal
+ *         from another thread, should be woken up and run its handler.
  *
  *
  * Test Case Name: [rt_signal_tc]
@@ -290,6 +292,38 @@ static void rt_signal_wait_test2(void)
     return;
 }
 
+static void rt_signal_delay_thread(void *parm)
+{
+    rt_signal_install(SIGUSR1, sig_handle_default);
+    rt_signal_unmask(SIGUSR1);
+
+    /* blocked here until a signal wakes this thread up */
+    rt_thread_mdelay(1000);
+
+    rt_sem_release(&_received_signal);
+}
+
+static void rt_signal_delay_thread_test(void)
+{
+    rt_thread_t t1;
+
+    receive_sig = -1;
+    t1 = rt_thread_create("sig_t2", rt_signal_delay_thread, 0, 4096, 14, 10);
+    uassert_true(t1 != RT_NULL);
+    rt_thread_startup(t1);
+
+    /* give the thread a chance to enter rt_thread_mdelay() */
+    rt_thread_mdelay(100);
+
+    /* case 10: the signal must wake the blocked thread up before its 1s delay expires,
+     * and the handler must be executed in that thread. */
+    uassert_int_equal(rt_thread_kill(t1, SIGUSR1), RT_EOK);
+    uassert_int_equal(rt_sem_take(&_received_signal, 500), RT_EOK);
+    uassert_int_equal(receive_sig, SIGUSR1);
+
+    return;
+}
+
 static rt_err_t utest_tc_init(void)
 {
     rt_sem_init(&_received_signal, "utest", 0, RT_IPC_FLAG_PRIO);
@@ -311,6 +345,7 @@ static void testcase(void)
     UTEST_UNIT_RUN(rt_signal_kill_test);
     UTEST_UNIT_RUN(rt_signal_wait_test);
     UTEST_UNIT_RUN(rt_signal_wait_test2);
+    UTEST_UNIT_RUN(rt_signal_delay_thread_test);
 #endif /* RT_USING_HEAP */
 }
 UTEST_TC_EXPORT(testcase, "core.signal", utest_tc_init, utest_tc_cleanup, 1000);
