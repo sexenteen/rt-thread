@@ -1,5 +1,6 @@
 from building import *
 import os
+import rtconfig
 
 cwd = GetCurrentDir()
 src = ['kerrno.c', 'kstdio.c', 'kstring.c']
@@ -13,7 +14,15 @@ if not GetDepend(['RT_KLIBC_USING_LIBC_VSNPRINTF']):
 if not GetDepend(['RT_KLIBC_USING_LIBC_VSSCANF']):
     src += ['rt_vsscanf.c']
 
-group = DefineGroup('Libc', src, depend = [''])
+# at -O2/-Os, GCC recognises the byte loops used by rt_memset()/rt_memcpy()/
+# rt_memmove() in kstring.c and turns them into calls to memset()/memcpy()/
+# memmove(). Those symbols do not exist on targets built without a C library,
+# so the firmware fails to link (see issue #6128). Keep the loops here.
+local_cflags = ''
+if rtconfig.CROSS_TOOL == 'gcc':
+    local_cflags = ' -fno-tree-loop-distribute-patterns'
+
+group = DefineGroup('Libc', src, depend = [''], LOCAL_CFLAGS = local_cflags)
 
 list = os.listdir(cwd)
 for item in list:
